@@ -4,6 +4,7 @@ import os
 from pithon.evaluator.evaluator import initial_env, evaluate
 from pithon.parser.simpleparser import SimpleParser
 from pithon.syntax import PiAssignment
+from pithon.errors import PiArgumentError, PiRuntimeError
 
 def run_cli(ast_only=False):
     parser = SimpleParser()
@@ -27,8 +28,18 @@ def run_cli(ast_only=False):
             result = evaluate(tree, env)
             if not isinstance(tree, PiAssignment):
                 print(result)
+        except SyntaxError as e:
+           print(f"❌ Erreur de syntaxe : {e}")
+        except PiArgumentError as e:
+           print(f"❌ Erreur d’arguments : {e}")
+        except AttributeError as e:
+            print(f"❌ Erreur d’attribut : {e}")
+        except TypeError as e:
+           print(f"❌ Erreur de type : {e}")
+        except PiRuntimeError as e:
+            print(f"❌ Erreur d'exécution Pithon : {e}")
         except Exception as e:
-            print(f"Erreur: {e}")
+           print(f"❌ Erreur inconnue (Python) : {e}")
 
 def run_file(filename, ast_only=False):
     parser = SimpleParser()
