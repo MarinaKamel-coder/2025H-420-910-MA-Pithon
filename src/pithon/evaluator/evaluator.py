@@ -3,10 +3,10 @@ from pithon.evaluator.primitive import check_type, get_primitive_dict
 from pithon.syntax import (
     PiAssignment, PiBinaryOperation, PiNumber, PiBool, PiStatement, PiProgram, PiSubscript, PiVariable,
     PiIfThenElse, PiNot, PiAnd, PiOr, PiWhile, PiNone, PiList, PiTuple, PiString,
-    PiFunctionDef, PiFunctionCall, PiFor, PiBreak, PiContinue, PiIn, PiReturn
+    PiFunctionDef, PiFunctionCall, PiFor, PiBreak, PiContinue, PiIn, PiReturn,PiClassDef, PiAttributeAssignment, PiAttribute
 )
-from pithon.evaluator.envvalue import EnvValue, VFunctionClosure, VList, VNone, VTuple, VNumber, VBool, VString
-
+from pithon.evaluator.envvalue import EnvValue, VFunctionClosure, VList, VNone, VTuple, VNumber, VBool, VString, VObject, VClassDef,VMethodClosure
+from pithon.errors import ReturnException, BreakException, ContinueException, PiArgumentError
 
 def initial_env() -> EnvFrame:
     """Crée et retourne l'environnement initial avec les primitives."""
@@ -16,7 +16,10 @@ def initial_env() -> EnvFrame:
 
 def lookup(env: EnvFrame, name: str) -> EnvValue:
     """Recherche une variable dans l'environnement."""
-    return env.lookup(name)
+    try:
+       return env.lookup(name)
+    except KeyError:
+        raise NameError(name)
 
 def insert(env: EnvFrame, name: str, value: EnvValue) -> None:
     """Insère une variable dans l'environnement."""
@@ -134,6 +137,30 @@ def evaluate_stmt(node: PiStatement, env: EnvFrame) -> EnvValue:
     elif isinstance(node, PiSubscript):
         return _evaluate_subscript(node, env)
 
+    elif isinstance(node, PiClassDef):
+        # Créer un dictionnaire des méthodes
+        method_dict = {}
+        for method in node.methods:
+            closure = VFunctionClosure(method, env)
+            method_dict[method.name] = closure
+        # Créer la classe
+        cls = VClassDef(name=node.name, methods=method_dict)
+        insert(env, node.name, cls)
+        return cls
+
+    elif isinstance(node, PiAttributeAssignment):
+        obj = evaluate_stmt(node.object, env)
+        if not isinstance(obj, VObject):
+            raise AttributeError("Seules les instances de classe peuvent avoir des attributs.")
+        value = evaluate_stmt(node.value, env)
+        obj.attributes[node.attr] = value
+        return value
+
+    elif isinstance(node, PiAttribute):
+        obj = evaluate_stmt(node.object, env)
+        if not isinstance(obj, VObject):
+            raise AttributeError("Seules les instances de classe peuvent avoir des attributs.")
+        return obj.get(node.attr)
     else:
         raise TypeError(f"Type de nœud non supporté : {type(node)}")
 
@@ -210,9 +237,19 @@ def _evaluate_function_call(node: PiFunctionCall, env: EnvFrame) -> EnvValue:
     """Évalue un appel de fonction (primitive ou définie par l'utilisateur)."""
     func_val = evaluate_stmt(node.function, env)
     args = [evaluate_stmt(arg, env) for arg in node.args]
+
+ # C méthode liée à une instance (self déjà lié)
+    if isinstance(func_val, VMethodClosure):
+        return func_val.call(args, env)
+
+    # appel d'une classe → création d'une instance
+    if isinstance(func_val, VClassDef):
+        return func_val.call(args, env)
+    
     # Fonction primitive
     if callable(func_val):
         return func_val(args)
+    
     # Fonction utilisateur
     if not isinstance(func_val, VFunctionClosure):
         raise TypeError("Tentative d'appel d'un objet non-fonction.")
@@ -223,12 +260,12 @@ def _evaluate_function_call(node: PiFunctionCall, env: EnvFrame) -> EnvValue:
         if i < len(args):
             call_env.insert(arg_name, args[i])
         else:
-            raise TypeError("Argument manquant pour la fonction.")
+            raise PiArgumentError("Argument manquant pour la fonction.")
     if funcdef.vararg:
         varargs = VList(args[len(funcdef.arg_names):])
         call_env.insert(funcdef.vararg, varargs)
     elif len(args) > len(funcdef.arg_names):
-        raise TypeError("Trop d'arguments pour la fonction.")
+        raise PiArgumentError("Trop d'arguments pour la fonction.")
     result = VNone(value=None)
     try:
         for stmt in funcdef.body:
@@ -237,15 +274,3 @@ def _evaluate_function_call(node: PiFunctionCall, env: EnvFrame) -> EnvValue:
         return ret.value
     return result
 
-class ReturnException(Exception):
-    """Exception pour retourner une valeur depuis une fonction."""
-    def __init__(self, value):
-        self.value = value
-
-class BreakException(Exception):
-    """Exception pour sortir d'une boucle (break)."""
-    pass
-
-class ContinueException(Exception):
-    """Exception pour passer à l'itération suivante (continue)."""
-    pass
