@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pithon.syntax import ( PiFunctionDef,
 )
 from pithon.evaluator.envframe import EnvFrame
+from pithon.errors import PiArgumentError, ReturnException
 
 PrimitiveFunction = Callable[..., 'EnvValue']
 
@@ -105,6 +106,11 @@ class VClassDef:
         instance = VObject(self)
         init = self.methods.get("__init__")
         if init:
+            expected_args = len(init.funcdef.arg_names) - 1
+            if len(args) != expected_args:
+              raise PiArgumentError(
+                f"__init__ attend {expected_args} argument(s), mais {len(args)} ont été donnés."
+            )
             call_env = EnvFrame(parent=init.closure_env)
             call_env.insert("self", instance)
             for i, arg_name in enumerate(init.funcdef.arg_names[1:]):
@@ -153,7 +159,11 @@ class VMethodClosure:
     def call(self, args, env: EnvFrame):
         """Appelle la méthode avec `self`."""
         from pithon.evaluator.evaluator import evaluate_stmt
-
+        expected_args = len(self.function.funcdef.arg_names) - 1
+        if len(args) != expected_args:
+           raise PiArgumentError(
+              f"La méthode '{self.function.funcdef.name}' attend {expected_args} argument(s), mais {len(args)} ont été donnés."
+        )
         call_env = EnvFrame(parent=self.function.closure_env)
         call_env.insert("self", self.instance)
 
